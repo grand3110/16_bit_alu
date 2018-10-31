@@ -28,9 +28,10 @@ module mojo_top (
       //ctr is used to store value of input a, b and your answer
       dff ctr_a[16];
       dff ctr_b[16];
+      dff ctr_alu[16];
       dff ctr_alufn[6];
       //counter is used to add delay 
-      dff counter[30];
+      dff counter[32];
       
       //fsm states to facilitate testing
       //row1:manual  row2-5:auto
@@ -38,7 +39,7 @@ module mojo_top (
                            ADDERTEST1, ADDERTEST2, ADDERTEST3, ADDERTESTERROR,
                            BOOLEANTEST1, BOOLEANTEST2, BOOLEANTEST3, BOOLEANTEST4, BOOLEANTESTERROR, 
                            SHIFTTEST1, SHIFTTEST2, SHIFTTEST3, SHIFTTESTERROR,
-                           COMPTEST1, COMPTEST2, COMPTEST3, COMPTEST4, COMPTEST5, COMPTEST6, COMPTESTERROR};
+                           COMPTEST1, COMPTEST2, COMPTEST3, COMPTESTERROR};
       //initialize multi seven seg to show numbers
       multi_seven_seg seg;
       }
@@ -46,11 +47,14 @@ module mojo_top (
   
   //define intermediate signals
   sig alu[16];
+  sig led_show[2][8];
+  sig seg_show[4];
   const X = 26;
   //initializes the alu
   alu alu1;
   
-  //initialize counter for a,b
+  //initialize sequential display tool
+  sequential_display seq;
   
   
   always {
@@ -84,6 +88,9 @@ module mojo_top (
     
     seg.values = {4he, 4he, 4he, 4he}; //to initialize the values for 7segment to be ----
     
+    //set up sequential display tool, connect output to intermediate values   
+    seq.a = ctr_a.q; seq.b = ctr_b.q; seq.alu = alu; seq.o = ctr_alu.q; seq.count = counter.q[X+1:X];
+    led_show = seq.led_out;  seg_show = seq.seg_out;    
     
     
     //FSM TEST CASES
@@ -311,83 +318,81 @@ module mojo_top (
         
         
       //ADDER TEST 1
-      // a=-40, b=-62, alufn[0]=0, output=-40+(-62)=-102
+      // a= 40, b= 62, output=40+62=102
+      // a=-40, b=-62, output=-40+(-62)=-102
+      // a= 40, b=-62, output=40+(-62)=-22
+      // a= 0,  b=0 , output = 0  
+      // a= -1 b= -1, output = -1+(-1) =-2
       state.ADDERTEST1:
-        ctr_alufn.d = 6b0;
-        ctr_a.d = 16b1111111111011000;
-        ctr_b.d = 16b1111111111000010;
-
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4ha, 4h1, 4he, 4ha};// "A1-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4ha, 4h1, 4he, 4hb};// "A1-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b1111111110011010){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4ha, 4h1, 4he, 4hf};} // "A1-E":incorrect output
-             default:  io_led[2:1] = 2x{{8h00}}; seg.values = {4ha, 4h1, 4he, 4he}; //display 'A1--'
-        }                         
+        ctr_alufn.d = 6b0; //addition
+        seg.values[3:2] = {4ha,4h1}; //display "A1"
+        
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;
 
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
         
         //increment clock counter 
-        counter.d = counter.q+1;
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.ADDERTEST2; //move to the next state
-        }
+        counter.d = counter.q+1;        
         
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16hFFD8;ctr_b.d = 16hFFC2;ctr_alu.d = 16hFF9A; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h0028;ctr_b.d = 16hFFC2;ctr_alu.d = 16hFFEA; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16h0000;ctr_b.d = 16h0000;ctr_alu.d = 16h0000; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16hFFFF;ctr_b.d = 16hFFFF;ctr_alu.d = 16hFFFE; seg.values[1]=4h5; //next calculation "5"
+          3b101:counter.d = 0;state.d = state.ADDERTEST2; //move to the next state           
+          default: ctr_a.d = 16h0028;ctr_b.d = 16h003E;ctr_alu.d = 16h0066; seg.values[1]=4h1;//first calculation "1"
+        }
         
         
         
         
         
       //ADDER TEST 2
-      // a=-40, b=-62, alufn[0]=1, output=-40-(-62)=22        
+      // a= 40, b= 62, output=40-62=-22
+      // a=-40, b=-62, output=-40-(-62)=22
+      // a= 40, b=-62, output=40-(-62)=102
+      // a= 0, b=0, output =0 
+      // a= -1, b=-1, output =-1-(-1)=0        
       state.ADDERTEST2:
-        ctr_alufn.d = 6b1;
-        ctr_a.d = 16b1111111111011000;
-        ctr_b.d = 16b1111111111000010;
-
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4ha, 4h2, 4he, 4ha};// "A2-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4ha, 4h2, 4he, 4hb};// "A2-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b0000000000010110){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4ha, 4h2, 4he, 4hf};} // "A2-E":incorrect output
-             default:io_led[2:1] = 2x{{8h00}}; seg.values = {4ha, 4h2, 4he, 4he}; //display 'A2--'
-        }                         
-       
+        ctr_alufn.d = 6b1; //subtraction
+        seg.values[3:2] = {4ha,4h2}; //display "A2"
         
-        //display 'A2--' to indicate ADDER TEST 2
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;                          
+       
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
         
         //increment clock counter 
         counter.d = counter.q+1;
         
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.ADDERTEST3; //move to the next state
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16hFFD8;ctr_b.d = 16hFFC2;ctr_alu.d = 16h0016; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h0028;ctr_b.d = 16hFFC2;ctr_alu.d = 16h0066; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16h0000;ctr_b.d = 16h0000;ctr_alu.d = 16h0000; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16hFFFF;ctr_b.d = 16hFFFF;ctr_alu.d = 16h0000; seg.values[1]=4h5; //next calculation "5"
+          3b101:counter.d = 0;state.d = state.ADDERTEST3; //move to the next state                 
+          default: ctr_a.d = 16h0028;ctr_b.d = 16h003E;ctr_alu.d = 16hFFEA; seg.values[1]=4h1;//first calculation "1"
         }
+
         
         
         
         
       //ADDER TEST 3
-      // a=4, b=62, alufn[1:0]=2b10, output=4*62=248        
+      // a= 40, b= 62, output=40*62=2480
+      // a=-40, b=-62, output=-40*(-62)=2480
+      // a= 40, b=-62, output=40*(-62)=-2480
+      // a= 0, b=0, output =0 
+      // a= -1, b=-1, output =-1-(-1)=1        
       state.ADDERTEST3:
-        ctr_alufn.d = 6b10;
-        ctr_a.d = 16b0000000000000100;
-        ctr_b.d = 16b0000000000111110;
-
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4ha, 4h3, 4he, 4ha};// "A3-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4ha, 4h3, 4he, 4hb};// "A3-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b0000000011111000){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4ha, 4h3, 4he, 4hf};} // "A1-E":incorrect output
-             default:io_led[2:1] = 2x{{8h00}}; seg.values = {4ha, 4h3, 4he, 4he}; //display 'A3--'
-        }                         
+        ctr_alufn.d = 6b10; //multiplication
+        seg.values[3:2] = {4ha,4h3}; //display "A3"
+        
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;                                 
        
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
@@ -395,17 +400,22 @@ module mojo_top (
         //increment clock counter 
         counter.d = counter.q+1;
         
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.ADDERTESTERROR; //move to the next state
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16hFFD8;ctr_b.d = 16hFFC2;ctr_alu.d = 16h09B0; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h0028;ctr_b.d = 16hFFC2;ctr_alu.d = 16hF650; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16h0000;ctr_b.d = 16h0000;ctr_alu.d = 16h0000; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16hFFFF;ctr_b.d = 16hFFFF;ctr_alu.d = 16h0001; seg.values[1]=4h5; //next calculation "5"
+          3b101:counter.d = 0;state.d = state.ADDERTESTERROR; //move to the next state               
+          default: ctr_a.d = 16h0028;ctr_b.d = 16h003E;ctr_alu.d = 16h09B0; seg.values[1]=4h1;//first calculation "1"
         }
-      
+        
+        
         
         
       //ADDER TEST ERROR
-      // a=100, b=100, alufn[0]=0, output=100+100=200       
+      // a=100, b=100, output=100+100=200       
       state.ADDERTESTERROR:
-        ctr_alufn.d = 6b10;
+        ctr_alufn.d = 6b0; //addition 
         ctr_a.d = 16b0000000001100100+16b1;//intentional error
         ctr_b.d = 16b0000000001100100;
  
@@ -432,20 +442,17 @@ module mojo_top (
         
         
       //BOOLEAN TEST 1 ('A')
-      //a = 16b1111100000000000, b = 16b0000000000011111, alufn[3:0] = 4b1010, output = 16b1111100000000000  
+      //a = 16b0000000011100000, b = 16b0000000000011111, output = 16b1111100000000000
+      //a = 16b1111100000000000, b = 16b1111111100000000, output = 16b1111100000000000 
+      //a = 16b0001111100000000, b = 16b1111100000000000, output = 16b0001111100000000
+      //a = 16b0, b = 16b0, output = 16b0
+      //a = 16b1, b = 16b1, output = 16b1
       state.BOOLEANTEST1:
-        ctr_alufn.d = 6b011010;
-        ctr_a.d = 16b1111100000000000;
-        ctr_b.d = 16b0000000000011111;
+        ctr_alufn.d = 6b011010; //return a
+        seg.values[3:2] = {4hb,4h1}; //display "B1"
 
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hb, 4h1, 4he, 4ha};// "B1-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hb, 4h1, 4he, 4hb};// "B1-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b1111100000000000){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hb, 4h1, 4he, 4hf};} // "B1-E":incorrect output
-             default: io_led[2:1] = 2x{{8h00}};seg.values = {4hb, 4h1, 4he, 4he}; //display 'B1--'
-        }                         
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;                        
        
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
@@ -453,95 +460,102 @@ module mojo_top (
         //increment clock counter 
         counter.d = counter.q+1;
         
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.BOOLEANTEST2; //move to the next state
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16hF800;ctr_b.d = 16hFF00;ctr_alu.d = 16hF800; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h1F00;ctr_b.d = 16hF800;ctr_alu.d = 16h1F00; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16h0000;ctr_b.d = 16h0000;ctr_alu.d = 16h0000; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16hFFFF;ctr_b.d = 16hFFFF;ctr_alu.d = 16hFFFF; seg.values[1]=4h5; //next calculation "5"
+          3b101:counter.d = 0;state.d = state.BOOLEANTEST2; //move to the next state               
+          default: ctr_a.d = 16h0E00;ctr_b.d = 16h001F;ctr_alu.d = 16h0E00; seg.values[1]=4h1;//first calculation "1"
         }
         
         
         
         
       //BOOLEAN TEST 2 (AND)
-      //a = 16b1111100000000000, b = 16b0001111100000000, alufn[3:0] = 4b1000, output = 16b0001100000000000    
+      //a = 16b0000000011100000, b = 16b0000000000011111, output = 16b0000000000000000
+      //a = 16b1111100000000000, b = 16b1111111100000000, output = 16b1111100000000000
+      //a = 16b0001111100000000, b = 16b1111100000000000, output = 16b0001100000000000
+      //a = 16b0, b = 16b0, output = 16b0
+      //a = 16b1, b = 16b1, output = 16b1
       state.BOOLEANTEST2:
-        ctr_alufn.d = 6b011000;
-        ctr_a.d = 16b1111100000000000;
-        ctr_b.d = 16b0001111100000000;
+        ctr_alufn.d = 6b011000; //AND
+        seg.values[3:2] = {4hb,4h2}; //display "B2"
 
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hb, 4h2, 4he, 4ha};// "B2-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hb, 4h2, 4he, 4hb};// "B2-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b0001100000000000){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hb, 4h2, 4he, 4hf};} // "B2-E":incorrect output
-             default:io_led[2:1] = 2x{{8h00}}; seg.values = {4hb, 4h2, 4he, 4he}; //display 'B2--'
-        }                               
-
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;                        
+       
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
         
         //increment clock counter 
         counter.d = counter.q+1;
         
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.BOOLEANTEST3; //move to the next state
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16hF800;ctr_b.d = 16hFF00;ctr_alu.d = 16hF800; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h1F00;ctr_b.d = 16hF800;ctr_alu.d = 16h1800; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16h0000;ctr_b.d = 16h0000;ctr_alu.d = 16h0000; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16hFFFF;ctr_b.d = 16hFFFF;ctr_alu.d = 16hFFFF; seg.values[1]=4h5; //next calculation "5"
+          3b101:counter.d = 0;state.d = state.BOOLEANTEST3; //move to the next state               
+          default: ctr_a.d = 16h00E0;ctr_b.d = 16h001F;ctr_alu.d = 16h0000; seg.values[1]=4h1;//first calculation "1"
         }
         
         
-      //BOOLEAN TEST 3 (OR)
-      //a = 16b1111100000000000, b = 16b0001111100000000, alufn[3:0] = 4b1110,, output = 16b1111111100000000    
+      //BOOLEAN TEST 3 (OR)  
+      //a = 16b0000000011100000, b = 16b0000000000011111, output = 16b0000000011111111
+      //a = 16b1111100000000000, b = 16b1111111100000000, output = 16b1111111100000000 
+      //a = 16b0001111100000000, b = 16b1111100000000000, output = 16b1111111100000000 
+      //a = 16b0, b = 16b0, output = 16b0
+      //a = 16b1, b = 16b1, output = 16b1
       state.BOOLEANTEST3:
-        ctr_alufn.d = 6b011110;
-        ctr_a.d = 16b1111100000000000;
-        ctr_b.d = 16b0001111100000000;
+        ctr_alufn.d = 6b011110; //OR
+        seg.values[3:2] = {4hb,4h3}; //display "B3"
 
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hb, 4h3, 4he, 4ha};// "B3-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hb, 4h3, 4he, 4hb};// "B3-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b1111111100000000){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hb, 4h3, 4he, 4hf};} // "B3-E":incorrect output
-             default: io_led[2:1] = 2x{{8h00}};seg.values = {4hb, 4h3, 4he, 4he}; //display 'B3--' 
-        }                         
-
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;                        
+       
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
         
         //increment clock counter 
         counter.d = counter.q+1;
         
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.BOOLEANTEST4; //move to the next state
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16hF800;ctr_b.d = 16hFF00;ctr_alu.d = 16hFF00; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h1F00;ctr_b.d = 16hF800;ctr_alu.d = 16hFF00; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16h0000;ctr_b.d = 16h0000;ctr_alu.d = 16h0000; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16hFFFF;ctr_b.d = 16hFFFF;ctr_alu.d = 16hFFFF; seg.values[1]=4h5; //next calculation "5"
+          3b101:counter.d = 0;state.d = state.BOOLEANTEST4; //move to the next state               
+          default: ctr_a.d = 16h00E0;ctr_b.d = 16h001F;ctr_alu.d = 16h00FF; seg.values[1]=4h1;//first calculation "1"
         }
         
         
-      //BOOLEAN TEST 4 (XOR)
-      //a = 16b1111100000000000, b = 16b0001111100000000, alufn[3:0] = 4b0110, output = 16b1110011100000000    
+      //BOOLEAN TEST 4 (XOR)    
+      //a = 16b0000000011100000, b = 16b0000000000011111, output = 16b0000000011111111
+      //a = 16b1111100000000000, b = 16b1111111100000000, output = 16b0000011100000000 
+      //a = 16b0001111100000000, b = 16b1111100000000000, output = 16b1110011100000000   
+      //a = 16b0, b = 16b0, output = 16b0
+      //a = 16b1, b = 16b1, output = 16b0
       state.BOOLEANTEST4:
-        ctr_alufn.d = 6b010110;
-        ctr_a.d = 16b1111100000000000;
-        ctr_b.d = 16b0001111100000000;
+        ctr_alufn.d = 6b010110;//XOR
+        seg.values[3:2] = {4hb,4h4}; //display "B4"
 
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hb, 4h4, 4he, 4ha};// "B4-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hb, 4h4, 4he, 4hb};// "B4-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b1110011100000000 ){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hb, 4h4, 4he, 4hf};} // "B4-E":incorrect output
-             default: io_led[2:1] = 2x{{8h00}};seg.values = {4hb, 4h4, 4he, 4he}; //display 'B4--' 
-        }                         
-
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;                        
+       
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
         
         //increment clock counter 
         counter.d = counter.q+1;
         
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.BOOLEANTESTERROR; //move to the next state
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16hF800;ctr_b.d = 16hFF00;ctr_alu.d = 16h0700; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h1F00;ctr_b.d = 16hF800;ctr_alu.d = 16hE700; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16h0000;ctr_b.d = 16h0000;ctr_alu.d = 16h0000; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16hFFFF;ctr_b.d = 16hFFFF;ctr_alu.d = 16h0000; seg.values[1]=4h5; //next calculation "5"
+          3b101:counter.d = 0;state.d = state.BOOLEANTESTERROR; //move to the next state               
+          default: ctr_a.d = 16h00E0;ctr_b.d = 16h001F;ctr_alu.d = 16h00FF; seg.values[1]=4h1;//first calculation "1"
         }
         
         
@@ -549,7 +563,7 @@ module mojo_top (
       //BOOLEAN TEST ERROR
       //a = 16b1111100000000000, b = 16b0001111100000000, alufn[3:0] = 4b0110, output = 16b1110011100000000    
       state.BOOLEANTESTERROR:
-        ctr_alufn.d = 6b010110;
+        ctr_alufn.d = 6b010110; //XOR
         ctr_a.d = 16b1111100000000000+16b1;//intentional error
         ctr_b.d = 16b0001111100000000;
 
@@ -582,89 +596,92 @@ module mojo_top (
         
           
       //SHIFT TEST 1 (shift left)
-      //a = 16b0000100010000000, b = 16b11, alufn[1:0] = 00, output = 16b0100010000000000  
+      //a = 16b0000100010000000, b = 16b0011, output = 16b0100010000000000
+      //a = 16b1000100010000000, b = 16b0011, output = 16b0100010000000000
+      //a = 16b0000100010000000, b = 16b0000, output = 16b0000100010000000
+      //a = 16b0000000000000000, b = 16b1111, output = 16b0000000000000000
+      //a = 16b1111111111111111, b = 16b1111, output = 16b1000000000000000
       state.SHIFTTEST1:
-        ctr_alufn.d = 6b100000;
-        ctr_a.d = 16b0000100010000000;
-        ctr_b.d = 16b11;
+        ctr_alufn.d = 6b100000; //SHIFT LEFT
+        seg.values[3:2] = {4hd,4h1}; //display "S1"
 
-        case(counter.q[X+2:X]){
-             b001:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hd, 4h1, 4he, 4ha};// "S1-A":showing input A
-             b010:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hd, 4h1, 4he, 4hb};// "S1-B":showing input B
-             b011:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b0100010000000000){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hd, 4h1, 4he, 4hf};} // "S1-E":incorrect output
-             default: io_led[2:1] = 2x{{8h00}};seg.values = {4hd, 4h1, 4he, 4he}; //display 'S1--' 
-        }                         
-
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;                        
+       
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
         
         //increment clock counter 
         counter.d = counter.q+1;
         
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.SHIFTTEST2; //move to the next state
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16h8880;ctr_b.d = 16h0003;ctr_alu.d = 16h4400; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h0880;ctr_b.d = 16h0000;ctr_alu.d = 16h0880; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16h0000;ctr_b.d = 16h000F;ctr_alu.d = 16h0000; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16hFFFF;ctr_b.d = 16h000F;ctr_alu.d = 16h8000; seg.values[1]=4h5; //next calculation "5"
+          3b101:counter.d = 0;state.d = state.SHIFTTEST2; //move to the next state               
+          default: ctr_a.d = 16h0880;ctr_b.d = 16h0003;ctr_alu.d = 16h4400; seg.values[1]=4h1;//first calculation "1"
         }
         
         
         
       //SHIFT TEST 2 (shift right)
-      //a = 16b0000100010000000, b = 16b11, alufn[1:0] = 01, output = 16b0000000100010000  
+      //a = 16b0000100010000000, b = 16b0011, output = 16b0000000100010000
+      //a = 16b1000100010000000, b = 16b0011, output = 16b0001000100010000
+      //a = 16b0000100010000000, b = 16b0000, output = 16b0000100010000000
+      //a = 16b0000000000000000, b = 16b1111, output = 16b0000000000000000
+      //a = 16b1111111111111111, b = 16b1111, output = 16b0000000000000001
       state.SHIFTTEST2:
-        ctr_alufn.d = 6b100001;
-        ctr_a.d = 16b0000100010000000;
-        ctr_b.d = 16b11;
+        ctr_alufn.d = 6b100001; //SHIFT right
+        seg.values[3:2] = {4hd,4h2}; //display "S2"
 
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hd, 4h2, 4he, 4ha};// "S2-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hd, 4h2, 4he, 4hb};// "S2-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b0000000100010000 ){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hd, 4h2, 4he, 4hf};} // "S2-E":incorrect output
-             default: io_led[2:1] = 2x{{8h00}};seg.values = {4hd, 4h2, 4he, 4he}; //display 'S2--'
-        }                         
-
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;                        
+       
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
         
         //increment clock counter 
         counter.d = counter.q+1;
         
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.SHIFTTEST3; //move to the next state
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16h8880;ctr_b.d = 16h0003;ctr_alu.d = 16h1110; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h0880;ctr_b.d = 16h0000;ctr_alu.d = 16h0880; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16h0000;ctr_b.d = 16h000F;ctr_alu.d = 16h0000; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16hFFFF;ctr_b.d = 16h000F;ctr_alu.d = 16h0001; seg.values[1]=4h5; //next calculation "5"
+          3b101:counter.d = 0;state.d = state.SHIFTTEST3; //move to the next state                          
+          default: ctr_a.d = 16h0880;ctr_b.d = 16h0003;ctr_alu.d = 16h0110; seg.values[1]=4h1;//first calculation "1"
         }
         
         
         
         
       //SHIFT TEST 3 (shift right arithmetic)
-      //a = 16b1111000010000000, b = 16b100, alufn[1:0] = 11, output = 16b1111111100001000  
+      //a = 16b0000100010000000, b = 16b0011, output = 16b0000000100010000
+      //a = 16b1000100010000000, b = 16b0011, output = 16b1111000100010000
+      //a = 16b0000100010000000, b = 16b0000, output = 16b0000100010000000
+      //a = 16b0000000000000000, b = 16b1111, output = 16b0000000000000000
+      //a = 16b1111111111111111, b = 16b1111, output = 16b1111111111111111
       state.SHIFTTEST3:
-        ctr_alufn.d = 6b100011;
-        ctr_a.d = 16b1111000010000000;
-        ctr_b.d = 16b100;
+        ctr_alufn.d = 6b100011; //shift right arithmetic
+        seg.values[3:2] = {4hd,4h3}; //display "S2"
 
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hd, 4h3, 4he, 4ha};// "S3-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hd, 4h3, 4he, 4hb};// "S3-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b1111111100001000){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hd, 4h3, 4he, 4hf};} // "S3-E":incorrect output
-             default:io_led[2:1] = 2x{{8h00}}; seg.values = {4hd, 4h3, 4he, 4he}; //display "S3--" 
-        }                         
-
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;                        
+       
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
         
         //increment clock counter 
         counter.d = counter.q+1;
         
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.SHIFTTESTERROR; //move to the next state
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16h8880;ctr_b.d = 16h0003;ctr_alu.d = 16hF110; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h0880;ctr_b.d = 16h0000;ctr_alu.d = 16h0880; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16h0000;ctr_b.d = 16h000F;ctr_alu.d = 16h0000; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16hFFFF;ctr_b.d = 16h000F;ctr_alu.d = 16hFFFF; seg.values[1]=4h5; //next calculation "5"
+          3b101:counter.d = 0;state.d = state.SHIFTTESTERROR; //move to the next state                          
+          default: ctr_a.d = 16h0880;ctr_b.d = 16h0003;ctr_alu.d = 16h0110; seg.values[1]=4h1;//first calculation "1"
         }
         
         
@@ -678,11 +695,11 @@ module mojo_top (
 
         case(counter.q[X+1:X]){
              b01:io_led[2:1] = {8b11110000,8b10000000}; seg.values = {4hd, 4hf, 4he, 4ha};// "SE-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hf, 4h3, 4he, 4hb};// "SE-B":showing input B
+             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hd, 4hf, 4he, 4hb};// "SE-B":showing input B
              b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
                   if(alu==16b1110000100000000){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
                   else{seg.values = {4hd, 4hf, 4he, 4hf};} // "SE-E":incorrect output
-             default:io_led[2:1] = 2x{{8h00}}; seg.values = {4ha, 4h2, 4he, 4he}; //display 'SE--' 
+             default:io_led[2:1] = 2x{{8h00}}; seg.values = {4hd, 4hf, 4he, 4he}; //display 'SE--' 
         }                         
 
         io_seg = ~seg.seg;
@@ -700,177 +717,110 @@ module mojo_top (
         
         
       //COMP TEST 1
-      //a = 62, b = 62, alufn[2:1] = 2b01, output = 1 since a==b  
+      // a=62, b=62, output = 1 since a==b
+      // a=-62, b =-62 output = 1 since a==b    
+      // a= 40, b= 62, output = 0 since a!=b
+      // a=-40, b=-62, output= 0 since a!=b
+      // a= 40, b=-62, output= 0 since a!=b
+      // a= 0,  b=0 , output = 1 since a=b 
+      // a= -1 b= -1, output = 1 since a=b
       state.COMPTEST1:
-        ctr_alufn.d = 6b110011;
-        ctr_a.d = 16b0000000000111110;
-        ctr_b.d = 16b0000000000111110;
-
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hc, 4h1, 4he, 4ha};// "C1-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hc, 4h1, 4he, 4hb};// "C1-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b1){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hc, 4h1, 4he, 4hf};} // "C1-E":incorrect output
-             default: io_led[2:1] = 2x{{8h00}};seg.values = {4hc, 4h1, 4he, 4he}; //display 'C1--'
-        }                         
-
+        ctr_alufn.d = 6b110011; //equal (==) 
+        seg.values[3:2] = {4hc,4h1}; //display "C1"
+        
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;                   
+       
+        
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
         
         //increment clock counter 
         counter.d = counter.q+1;
         
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.COMPTEST2; //move to the next state
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16hFFC2;ctr_b.d = 16hFFC2;ctr_alu.d = 16h0001; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h0028;ctr_b.d = 16h003E;ctr_alu.d = 16h0000; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16hFFD8;ctr_b.d = 16hFFC2;ctr_alu.d = 16h0000; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16h0028;ctr_b.d = 16hFFC2;ctr_alu.d = 16h0000; seg.values[1]=4h5; //next calculation "5"
+          3b101:ctr_a.d = 16h0000;ctr_b.d = 16h0000;ctr_alu.d = 16h0001; seg.values[1]=4h6; //next calculation "6"
+          3b110:ctr_a.d = 16hFFFF;ctr_b.d = 16hFFFF;ctr_alu.d = 16h0001; seg.values[1]=4h7; //next calculation "7"
+          3b111:counter.d = 0;state.d = state.COMPTEST2; //move to the next state
+                           
+          default: ctr_a.d = 16h003E;ctr_b.d = 16h003E;ctr_alu.d = 16h0001; seg.values[1]=4h1;//first calculation "1"
         }
         
         
         
       //COMP TEST 2
-      //a = 62, b = 63, alufn[2:1] = 2b01, output = 0 since a!=b  
+      // a=62, b=62, output = 0 since !(a<b)
+      // a=-62, b =-62 output = 0 since !(a<b)    
+      // a= 40, b= 62, output = 1 since a<b
+      // a=-62, b=-40, output= 1 since a<b 
+      // a= 40, b=-62, output= 0 since !(a<b) 
+      // a= 0,  b=0 , output = 0 since !(a<b)  
+      // a= -1 b= -1, output = 0 since !(a<b) 
       state.COMPTEST2:
-        ctr_alufn.d = 6b110011;
-        ctr_a.d = 16b0000000000111110;
-        ctr_b.d = 16b0000000000111111;
-
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hc, 4h2, 4he, 4ha};// "C2-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hc, 4h2, 4he, 4hb};// "C2-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b0){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hc, 4h2, 4he, 4hf};} // "C2-E":incorrect output
-             default: io_led[2:1] = 2x{{8h00}};seg.values = {4hc, 4h2, 4he, 4he}; //display 'C2--'
-        }                         
-
+        ctr_alufn.d = 6b110101; //less than (<) 
+        seg.values[3:2] = {4hc,4h2}; //display "C2"
+        
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;                   
+       
+        
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
         
         //increment clock counter 
         counter.d = counter.q+1;
         
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.COMPTEST3; //move to the next state
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16hFFC2;ctr_b.d = 16hFFC2;ctr_alu.d = 16h0000; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h0028;ctr_b.d = 16h003E;ctr_alu.d = 16h0001; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16hFFC2;ctr_b.d = 16hFFD8;ctr_alu.d = 16h0001; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16h0028;ctr_b.d = 16hFFC2;ctr_alu.d = 16h0000; seg.values[1]=4h5; //next calculation "5"
+          3b101:ctr_a.d = 16h0000;ctr_b.d = 16h0000;ctr_alu.d = 16h0000; seg.values[1]=4h6; //next calculation "6"
+          3b110:ctr_a.d = 16hFFFF;ctr_b.d = 16hFFFF;ctr_alu.d = 16h0000; seg.values[1]=4h7; //next calculation "7"
+          3b111:counter.d = 0;state.d = state.COMPTEST3; //move to the next state
+                           
+          default: ctr_a.d = 16h003E;ctr_b.d = 16h003E;ctr_alu.d = 16h0000; seg.values[1]=4h1;//first calculation "1"
         }
         
         
       //COMP TEST 3
-      //a = 62, b = 63, alufn[2:1] = 2b10, output = 1 since a<b  
+      // a=62, b=62, output = 1 since a<=b
+      // a=-62, b =-62 output = 1 since a<=b    
+      // a= 40, b= 62, output = 1 since a<=b
+      // a=-62, b=-40, output= 1 since a<=b
+      // a= 40, b=-62, output= 0 since !(a<=b) 
+      // a= 0,  b=0 , output = 1 since a<=b 
+      // a= -1 b= -1, output = 1 since a<=b 
       state.COMPTEST3:
-        ctr_alufn.d = 6b110101;
-        ctr_a.d = 16b0000000000111110;
-        ctr_b.d = 16b0000000000111111;
-
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hc, 4h3, 4he, 4ha};// "C3-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hc, 4h3, 4he, 4hb};// "C3-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b1){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hc, 4h3, 4he, 4hf};} // "C3-E":incorrect output
-             default: io_led[2:1] = 2x{{8h00}};seg.values = {4hc, 4h3, 4he, 4he}; //display 'C3--'
-        }                         
-
+        ctr_alufn.d = 6b110111; //less than 0r equal to (<=) 
+        seg.values[3:2] = {4hc,4h3}; //display "C3"
+        
+        io_led[2:1]=led_show;
+        seg.values[0]=seg_show;                   
+       
+        
         io_seg = ~seg.seg;
         io_sel = ~seg.sel;
         
         //increment clock counter 
         counter.d = counter.q+1;
         
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.COMPTEST4; //move to the next state
+        case(counter.q[X+4:X+2]){
+          3b001:ctr_a.d = 16hFFC2;ctr_b.d = 16hFFC2;ctr_alu.d = 16h0001; seg.values[1]=4h2; //next calculation "2"
+          3b010:ctr_a.d = 16h0028;ctr_b.d = 16h003E;ctr_alu.d = 16h0001; seg.values[1]=4h3; //next calculation "3"
+          3b011:ctr_a.d = 16hFFC2;ctr_b.d = 16hFFD8;ctr_alu.d = 16h0001; seg.values[1]=4h4; //next calculation "4"
+          3b100:ctr_a.d = 16h0028;ctr_b.d = 16hFFC2;ctr_alu.d = 16h0000; seg.values[1]=4h5; //next calculation "5"
+          3b101:ctr_a.d = 16h0000;ctr_b.d = 16h0000;ctr_alu.d = 16h0001; seg.values[1]=4h6; //next calculation "6"
+          3b110:ctr_a.d = 16hFFFF;ctr_b.d = 16hFFFF;ctr_alu.d = 16h0001; seg.values[1]=4h7; //next calculation "7"
+          3b111:counter.d = 0;state.d = state.COMPTESTERROR; //move to the next state
+                           
+          default: ctr_a.d = 16h003E;ctr_b.d = 16h003E;ctr_alu.d = 16h0001; seg.values[1]=4h1;//first calculation "1"
         }
         
-        
-        
-        
-      //COMP TEST 4
-      //a = 63, b = 63, alufn[2:1] = 2b10, output = 0 since !(a<b)  
-      state.COMPTEST4:
-        ctr_alufn.d = 6b110101;
-        ctr_a.d = 16b0000000000111111;
-        ctr_b.d = 16b0000000000111111;
-
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hc, 4h4, 4he, 4ha};// "C4-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hc, 4h4, 4he, 4hb};// "C4-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b0){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hc, 4h4, 4he, 4hf};} // "C4-E":incorrect output
-             default: io_led[2:1] = 2x{{8h00}};seg.values = {4hc, 4h4, 4he, 4he}; //display 'C4--'
-        }                         
-     
-        io_seg = ~seg.seg;
-        io_sel = ~seg.sel;
-        
-        //increment clock counter 
-        counter.d = counter.q+1;
-        
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.COMPTEST5; //move to the next state
-        }
-        
-        
-        
-        
-      //COMP TEST 5
-      //a = 63, b = 63, alufn[2:1] = 2b11, output = 1 since a<=b 
-      state.COMPTEST5:
-        ctr_alufn.d = 6b110111;
-        ctr_a.d = 16b0000000000111111;
-        ctr_b.d = 16b0000000000111111;
-
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hc, 4h5, 4he, 4ha};// "C5-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hc, 4h5, 4he, 4hb};// "C5-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b1){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hc, 4h5, 4he, 4hf};} // "C5-E":incorrect output
-             default:io_led[2:1] = 2x{{8h00}}; seg.values = {4hc, 4h5, 4he, 4he}; //display 'C5--'
-        }                         
-
-        io_seg = ~seg.seg;
-        io_sel = ~seg.sel;
-        
-        //increment clock counter 
-        counter.d = counter.q+1;
-        
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.COMPTEST6; //move to the next state
-        }
-        
-        
-        
-      //COMP TEST 6
-      //a = 63, b = 62, alufn[2:1] = 2b11, output = 0 since !(a<=b) 
-      state.COMPTEST6:
-        ctr_alufn.d = 6b110111;
-        ctr_a.d = 16b0000000000111111;
-        ctr_b.d = 16b0000000000111110;
-
-        case(counter.q[X+1:X]){
-             b01:io_led[2:1] = {ctr_a.q[15-:8],ctr_a.q[7-:8]}; seg.values = {4hc, 4h6, 4he, 4ha};// "C6-A":showing input A
-             b10:io_led[2:1] = {ctr_b.q[15-:8],ctr_b.q[7-:8]}; seg.values = {4hc, 4h6, 4he, 4hb};// "C6-B":showing input B
-             b11:io_led[2:1] = {alu[15-:8],alu[7-:8]}; 
-                  if(alu==16b0){seg.values = {4h9, 4ha, 4hd, 4hd}; }// "PASS":correct output
-                  else{seg.values = {4hc, 4h6, 4he, 4hf};} // "C6-E":incorrect output
-             default:io_led[2:1] = 2x{{8h00}}; seg.values = {4hc, 4h6, 4he, 4he}; //display 'C6--'
-        }                         
-
-        io_seg = ~seg.seg;
-        io_sel = ~seg.sel;
-        
-        //increment clock counter 
-        counter.d = counter.q+1;
-        
-        if(counter.q[X+2]==1){
-          counter.d = 0; //reset counter for the next state
-          state.d = state.COMPTESTERROR; //move to the next state
-        }
         
         
         
