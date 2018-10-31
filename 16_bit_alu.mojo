@@ -3,6 +3,7 @@
   <files>
     <src>adder16.luc</src>
     <src>shifter16.luc</src>
+    <src>sequential display.luc</src>
     <src>multi_seven_seg.luc</src>
     <src top="true">mojo_top.luc</src>
     <src>alu.luc</src>
